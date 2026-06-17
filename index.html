@@ -52,7 +52,7 @@
                     <span class="text-orange-500">⚠️</span>
                     Hazard Map
                 </h1>
-                <p class="text-gray-400 text-sm mt-1">PMC Building 1 • Live Shared</p>
+                <p class="text-gray-400 text-sm mt-1">PMC Building 1</p>
             </div>
 
             <!-- Password -->
@@ -96,7 +96,7 @@
         <div class="flex-1 flex flex-col">
             <div class="bg-gray-900 border-b border-gray-700 p-4 flex items-center justify-between">
                 <div class="flex items-center gap-4">
-                    <div class="text-sm text-gray-400">Building: PMC 1</div>
+                    <div class="text-sm text-gray-400">Building: 1 • PMC</div>
                     <div class="text-xs px-3 py-1 bg-gray-800 rounded-full text-green-400">Connected</div>
                 </div>
                 <button onclick="logout()" class="text-gray-400 hover:text-white">Logout</button>
@@ -109,7 +109,7 @@
             </div>
 
             <div class="bg-gray-900 p-4 text-xs text-gray-500 border-t border-gray-700">
-                Drag from legend • Wheel to zoom • Double-click pin to edit notes
+                Drag from legend • Wheel to zoom • Double-click pin to edit notes • Hover for tooltip
             </div>
         </div>
     </div>
@@ -119,7 +119,9 @@
         <div class="bg-gray-900 rounded-3xl p-6 w-full max-w-md">
             <h3 class="text-lg font-semibold mb-1" id="modal-title">Hazard Details</h3>
             <p id="modal-hazard-name" class="text-orange-400 text-sm mb-4"></p>
-            <textarea id="hazard-notes" rows="6" class="w-full bg-gray-800 border border-gray-600 rounded-2xl p-4 text-white resize-y" placeholder="Notes..."></textarea>
+            
+            <textarea id="hazard-notes" rows="6" class="w-full bg-gray-800 border border-gray-600 rounded-2xl p-4 text-white resize-y" placeholder="Notes, responsible person, status, actions..."></textarea>
+            
             <div class="flex gap-3 mt-6">
                 <button onclick="deleteCurrentHazard()" class="flex-1 py-3 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-2xl font-medium">Delete Pin</button>
                 <button onclick="closeModal()" class="flex-1 py-3 bg-gray-700 hover:bg-gray-600 rounded-2xl font-medium">Cancel</button>
@@ -131,9 +133,9 @@
     <script>
         const PASSWORD = "safety2026";
 
+        // SUPABASE
         const SUPABASE_URL = 'https://kiatbiizngtuooheicxs.supabase.co';
         const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtpYXRiaWl6bmd0dW9vaGVpY3hzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE2Nzk5MTEsImV4cCI6MjA5NzI1NTkxMX0.UQBpBAXHxtZXnvjKhF6QhTgN3IaTKIb-2SFnLZPGBWE';
-        
         const supabase = Supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
         let hazards = [];
@@ -244,7 +246,8 @@
                 document.querySelectorAll('.hazard-icon').forEach(i => i.remove());
                 hazards.forEach(h => {
                     const type = hazardTypes.find(t => t.id === h.type_id);
-                    if (type) createIcon(h, type);
+                    if (!type) return;
+                    createIcon(h, type);
                 });
             } catch (err) {
                 console.error(err);
@@ -276,7 +279,7 @@
             currentEditingId = id;
             const hazard = hazards.find(h => h.id === id);
             if (!hazard) return;
-            const type = hazardTypes.find(t => t.id === hazard.type_id);
+            const type = hazardTypes.find(t => t.id === hazard.typeId);
             document.getElementById('modal-title').textContent = 'Edit Hazard';
             document.getElementById('modal-hazard-name').innerHTML = type ? `${type.icon} ${type.name}` : 'Hazard';
             document.getElementById('hazard-notes').value = hazard.notes || '';
@@ -285,10 +288,19 @@
 
         async function saveHazardDetails() {
             if (!currentEditingId) return;
-            const notes = document.getElementById('hazard-notes').value.trim();
-            await supabase.from('hazards').update({ notes }).eq('id', currentEditingId);
+            const hazard = hazards.find(h => h.id === currentEditingId);
+            if (hazard) {
+                hazard.notes = document.getElementById('hazard-notes').value.trim();
+                const icon = document.querySelector(`.hazard-icon[data-id="${currentEditingId}"]`);
+                if (icon) {
+                    const type = hazardTypes.find(t => t.id === hazard.typeId);
+                    const short = hazard.notes ? ': ' + hazard.notes.substring(0, 80) + (hazard.notes.length > 80 ? '...' : '') : '';
+                    icon.title = (type ? type.name : '') + short;
+                }
+                // save to Supabase
+                await supabase.from('hazards').update({ notes: hazard.notes }).eq('id', currentEditingId);
+            }
             closeModal();
-            loadHazards();
         }
 
         async function deleteCurrentHazard() {
@@ -310,19 +322,30 @@
             }
         }
 
-        function refreshMap() { loadHazards(); }
-        function exportMap() { alert("Use screenshot for best quality"); }
-        function toggleAllLayers(show) {
-            document.querySelectorAll('.hazard-icon').forEach(icon => icon.style.display = show ? 'flex' : 'none');
+        function exportMap() {
+            alert("For best export, use browser screenshot (PrtSc) or right-click map → Save image.");
         }
-        function logout() { if(confirm('Logout?')) location.reload(); }
 
+        function toggleAllLayers(show) {
+            document.querySelectorAll('.hazard-icon').forEach(icon => {
+                icon.style.display = show ? 'flex' : 'none';
+            });
+        }
+
+        function refreshMap() { loadHazards(); }
+
+        function logout() {
+            if (confirm('Logout?')) location.reload();
+        }
+
+        // Drop handler
         mapContainer.addEventListener('dragover', e => e.preventDefault());
         mapContainer.addEventListener('drop', e => {
             e.preventDefault();
             const typeId = e.dataTransfer.getData('text/plain');
             const type = hazardTypes.find(t => t.id === typeId);
             if (!type) return;
+
             const rect = mapWrapper.getBoundingClientRect();
             const logicalX = (e.clientX - rect.left) / zoomLevel;
             const logicalY = (e.clientY - rect.top) / zoomLevel;
