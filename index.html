@@ -52,10 +52,11 @@
                     <span class="text-orange-500">⚠️</span>
                     Hazard Map
                 </h1>
-                <p class="text-gray-400 text-sm mt-1">PMC Building 1 • Live Shared</p>
+                <p class="text-gray-400 text-sm mt-1">PMC Building 1</p>
             </div>
 
-            <div class="flex-1 flex flex-col">
+            <!-- Main App -->
+            <div id="main-app" class="hidden flex-1 flex flex-col">
                 <div class="p-6 border-b border-gray-700 overflow-auto flex-1">
                     <div class="flex justify-between items-center mb-4">
                         <h2 class="font-semibold text-lg">Hazard Legend</h2>
@@ -82,9 +83,10 @@
         <div class="flex-1 flex flex-col">
             <div class="bg-gray-900 border-b border-gray-700 p-4 flex items-center justify-between">
                 <div class="flex items-center gap-4">
-                    <div class="text-sm text-gray-400">Building: PMC 1</div>
+                    <div class="text-sm text-gray-400">Building: 1 • PMC</div>
                     <div class="text-xs px-3 py-1 bg-gray-800 rounded-full text-green-400">Connected</div>
                 </div>
+                <button onclick="logout()" class="text-gray-400 hover:text-white">Logout</button>
             </div>
             
             <div id="map-container" class="flex-1 p-8 flex items-center justify-center overflow-auto relative">
@@ -94,7 +96,7 @@
             </div>
 
             <div class="bg-gray-900 p-4 text-xs text-gray-500 border-t border-gray-700">
-                Drag from legend • Wheel to zoom • Double-click pin to edit notes
+                Drag from legend • Wheel to zoom • Double-click pin to edit notes • Hover for tooltip
             </div>
         </div>
     </div>
@@ -104,7 +106,7 @@
         <div class="bg-gray-900 rounded-3xl p-6 w-full max-w-md">
             <h3 class="text-lg font-semibold mb-1" id="modal-title">Hazard Details</h3>
             <p id="modal-hazard-name" class="text-orange-400 text-sm mb-4"></p>
-            <textarea id="hazard-notes" rows="6" class="w-full bg-gray-800 border border-gray-600 rounded-2xl p-4 text-white resize-y" placeholder="Notes..."></textarea>
+            <textarea id="hazard-notes" rows="6" class="w-full bg-gray-800 border border-gray-600 rounded-2xl p-4 text-white resize-y" placeholder="Notes, responsible person, status, actions..."></textarea>
             <div class="flex gap-3 mt-6">
                 <button onclick="deleteCurrentHazard()" class="flex-1 py-3 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-2xl font-medium">Delete Pin</button>
                 <button onclick="closeModal()" class="flex-1 py-3 bg-gray-700 hover:bg-gray-600 rounded-2xl font-medium">Cancel</button>
@@ -114,6 +116,8 @@
     </div>
 
     <script>
+        const PASSWORD = "safety2026";
+
         const SUPABASE_URL = 'https://kiatbiizngtuooheicxs.supabase.co';
         const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtpYXRiaWl6bmd0dW9vaGVpY3hzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE2Nzk5MTEsImV4cCI6MjA5NzI1NTkxMX0.UQBpBAXHxtZXnvjKhF6QhTgN3IaTKIb-2SFnLZPGBWE';
         const supabase = Supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
@@ -143,10 +147,16 @@
             {id: 'g5', name: 'Sharp Edges', category: 'general', icon: '🗡️', color: '#78716c'},
         ];
 
-        window.onload = () => {
-            initLegend();
-            loadHazards();
-        };
+        function checkPassword() {
+            if (document.getElementById('password-input').value === PASSWORD) {
+                document.getElementById('login-screen').classList.add('hidden');
+                document.getElementById('main-app').classList.remove('hidden');
+                initLegend();
+                loadHazards();
+            } else {
+                alert("Incorrect password. Try again.");
+            }
+        }
 
         function initLegend() {
             const lifeDiv = document.getElementById('life-critical-legend');
@@ -175,42 +185,45 @@
         let zoomLevel = 1;
         let panX = 0;
         let panY = 0;
-        const mapContainer = document.getElementById('map-container');
-        const mapWrapper = document.getElementById('map-wrapper');
 
-        function updateTransform() {
-            mapWrapper.style.transform = `translate(${panX}px, ${panY}px) scale(${zoomLevel})`;
+        function initMapControls() {
+            const mapContainer = document.getElementById('map-container');
+            const mapWrapper = document.getElementById('map-wrapper');
+
+            function updateTransform() {
+                mapWrapper.style.transform = `translate(${panX}px, ${panY}px) scale(${zoomLevel})`;
+            }
+
+            mapContainer.addEventListener('wheel', e => {
+                e.preventDefault();
+                const delta = e.deltaY < 0 ? 1.1 : 0.9;
+                const old = zoomLevel;
+                zoomLevel = Math.max(0.5, Math.min(5, zoomLevel * delta));
+                const rect = mapContainer.getBoundingClientRect();
+                const mx = e.clientX - rect.left;
+                const my = e.clientY - rect.top;
+                panX = mx - (mx - panX) * (zoomLevel / old);
+                panY = my - (my - panY) * (zoomLevel / old);
+                updateTransform();
+            });
+
+            let isDragging = false, lastX, lastY;
+            mapContainer.addEventListener('mousedown', e => {
+                if (e.target.closest('.hazard-icon')) return;
+                isDragging = true;
+                lastX = e.clientX;
+                lastY = e.clientY;
+            });
+            document.addEventListener('mousemove', e => {
+                if (!isDragging) return;
+                panX += e.clientX - lastX;
+                panY += e.clientY - lastY;
+                lastX = e.clientX;
+                lastY = e.clientY;
+                updateTransform();
+            });
+            document.addEventListener('mouseup', () => isDragging = false);
         }
-
-        mapContainer.addEventListener('wheel', e => {
-            e.preventDefault();
-            const delta = e.deltaY < 0 ? 1.1 : 0.9;
-            const old = zoomLevel;
-            zoomLevel = Math.max(0.5, Math.min(5, zoomLevel * delta));
-            const rect = mapContainer.getBoundingClientRect();
-            const mx = e.clientX - rect.left;
-            const my = e.clientY - rect.top;
-            panX = mx - (mx - panX) * (zoomLevel / old);
-            panY = my - (my - panY) * (zoomLevel / old);
-            updateTransform();
-        });
-
-        let isDragging = false, lastX, lastY;
-        mapContainer.addEventListener('mousedown', e => {
-            if (e.target.closest('.hazard-icon')) return;
-            isDragging = true;
-            lastX = e.clientX;
-            lastY = e.clientY;
-        });
-        document.addEventListener('mousemove', e => {
-            if (!isDragging) return;
-            panX += e.clientX - lastX;
-            panY += e.clientY - lastY;
-            lastX = e.clientX;
-            lastY = e.clientY;
-            updateTransform();
-        });
-        document.addEventListener('mouseup', () => isDragging = false);
 
         async function loadHazards() {
             try {
@@ -252,7 +265,7 @@
             currentEditingId = id;
             const hazard = hazards.find(h => h.id === id);
             if (!hazard) return;
-            const type = hazardTypes.find(t => t.id === hazard.type_id);
+            const type = hazardTypes.find(t => t.id === hazard.typeId);
             document.getElementById('modal-title').textContent = 'Edit Hazard';
             document.getElementById('modal-hazard-name').innerHTML = type ? `${type.icon} ${type.name}` : 'Hazard';
             document.getElementById('hazard-notes').value = hazard.notes || '';
@@ -291,8 +304,8 @@
         function toggleAllLayers(show) {
             document.querySelectorAll('.hazard-icon').forEach(icon => icon.style.display = show ? 'flex' : 'none');
         }
+        function logout() { if(confirm('Logout?')) location.reload(); }
 
-        // Drop handler
         mapContainer.addEventListener('dragover', e => e.preventDefault());
         mapContainer.addEventListener('drop', e => {
             e.preventDefault();
@@ -306,6 +319,10 @@
         });
 
         supabase.channel('hazards').on('postgres_changes', { event: '*', schema: 'public', table: 'hazards' }, loadHazards).subscribe();
+
+        window.onload = () => {
+            initMapControls();
+        };
     </script>
 </body>
 </html>
