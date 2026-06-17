@@ -9,15 +9,38 @@
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
         body { font-family: 'Inter', sans-serif; }
-        #map-container { position: relative; overflow: hidden; background-color: #f3f4f6; cursor: grab; }
-        #map-wrapper { position: relative; display: inline-block; transform-origin: top left; }
+        #map-container {
+            position: relative;
+            overflow: hidden;
+            background-color: #f3f4f6;
+            cursor: grab;
+        }
+        #map-wrapper {
+            position: relative;
+            display: inline-block;
+            transform-origin: top left;
+        }
         .hazard-icon {
-            position: absolute; width: 20px; height: 20px; cursor: pointer; user-select: none; z-index: 10;
-            display: flex; align-items: center; justify-content: center; font-size: 14px;
-            border-radius: 9999px; box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.3);
+            position: absolute;
+            width: 20px;
+            height: 20px;
+            cursor: pointer;
+            user-select: none;
+            z-index: 10;
+            transition: transform 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+            border-radius: 9999px;
+            box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.3);
             border: 2px solid #ef4444 !important;
         }
-        .hazard-icon:hover { transform: scale(1.2); box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.4); }
+        .hazard-icon:hover {
+            transform: scale(1.2);
+            box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.4);
+        }
+        .legend-item { cursor: grab; }
     </style>
 </head>
 <body class="bg-gray-950 text-white">
@@ -26,7 +49,8 @@
         <div class="w-80 bg-gray-900 border-r border-gray-700 flex flex-col">
             <div class="p-6 border-b border-gray-700">
                 <h1 class="text-2xl font-bold flex items-center gap-3">
-                    <span class="text-orange-500">⚠️</span> Hazard Map
+                    <span class="text-orange-500">⚠️</span>
+                    Hazard Map
                 </h1>
                 <p class="text-gray-400 text-sm mt-1">PMC Building 1 • Live Shared</p>
             </div>
@@ -59,7 +83,7 @@
             <div class="bg-gray-900 border-b border-gray-700 p-4 flex items-center justify-between">
                 <div class="flex items-center gap-4">
                     <div class="text-sm text-gray-400">Building: PMC 1</div>
-                    <div class="text-xs px-3 py-1 bg-emerald-900 rounded-full text-emerald-400">● Live Sync</div>
+                    <div class="text-xs px-3 py-1 bg-gray-800 rounded-full text-green-400">Connected</div>
                 </div>
             </div>
             
@@ -70,7 +94,7 @@
             </div>
 
             <div class="bg-gray-900 p-4 text-xs text-gray-500 border-t border-gray-700">
-                Drag from legend • Wheel to zoom • Double-click pin to edit
+                Drag from legend • Wheel to zoom • Double-click pin to edit notes
             </div>
         </div>
     </div>
@@ -95,6 +119,7 @@
         const supabase = Supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
         let hazards = [];
+        let nextId = 1;
         let currentEditingId = null;
 
         const hazardTypes = [
@@ -147,8 +172,9 @@
             });
         }
 
-        // Zoom & Pan (your original code)
-        let zoomLevel = 1, panX = 0, panY = 0;
+        let zoomLevel = 1;
+        let panX = 0;
+        let panY = 0;
         const mapContainer = document.getElementById('map-container');
         const mapWrapper = document.getElementById('map-wrapper');
 
@@ -186,7 +212,6 @@
         });
         document.addEventListener('mouseup', () => isDragging = false);
 
-        // Supabase functions
         async function loadHazards() {
             try {
                 const { data, error } = await supabase.from('hazards').select('*').order('created_at');
@@ -217,17 +242,68 @@
             mapWrapper.appendChild(icon);
         }
 
-        // Add the rest of your functions (edit, save, delete, etc.) here if needed
-        function editHazard(id) { /* implement as needed */ }
-        async function saveHazardDetails() { /* implement */ }
-        async function deleteCurrentHazard() { /* implement */ }
-        function closeModal() { /* implement */ }
-        async function clearMap() { /* implement */ }
-        function refreshMap() { loadHazards(); }
-        function exportMap() { alert("Use screenshot"); }
-        function toggleAllLayers(show) {
-            document.querySelectorAll('.hazard-icon').forEach(i => i.style.display = show ? 'flex' : 'none');
+        async function addHazardToMap(type, logicalX, logicalY) {
+            const newId = String(Date.now());
+            await supabase.from('hazards').insert({ id: newId, type_id: type.id, x: logicalX, y: logicalY, notes: '' });
+            loadHazards();
         }
+
+        function editHazard(id) {
+            currentEditingId = id;
+            const hazard = hazards.find(h => h.id === id);
+            if (!hazard) return;
+            const type = hazardTypes.find(t => t.id === hazard.type_id);
+            document.getElementById('modal-title').textContent = 'Edit Hazard';
+            document.getElementById('modal-hazard-name').innerHTML = type ? `${type.icon} ${type.name}` : 'Hazard';
+            document.getElementById('hazard-notes').value = hazard.notes || '';
+            document.getElementById('hazard-modal').classList.remove('hidden');
+        }
+
+        async function saveHazardDetails() {
+            if (!currentEditingId) return;
+            const notes = document.getElementById('hazard-notes').value.trim();
+            await supabase.from('hazards').update({ notes }).eq('id', currentEditingId);
+            closeModal();
+            loadHazards();
+        }
+
+        async function deleteCurrentHazard() {
+            if (!currentEditingId || !confirm('Delete this hazard pin?')) return;
+            await supabase.from('hazards').delete().eq('id', currentEditingId);
+            closeModal();
+            loadHazards();
+        }
+
+        function closeModal() {
+            document.getElementById('hazard-modal').classList.add('hidden');
+            currentEditingId = null;
+        }
+
+        async function clearMap() {
+            if (confirm('Clear ALL hazard pins?')) {
+                await supabase.from('hazards').delete().neq('id', '0');
+                loadHazards();
+            }
+        }
+
+        function refreshMap() { loadHazards(); }
+        function exportMap() { alert("Use screenshot for best quality"); }
+        function toggleAllLayers(show) {
+            document.querySelectorAll('.hazard-icon').forEach(icon => icon.style.display = show ? 'flex' : 'none');
+        }
+
+        // Drop handler
+        mapContainer.addEventListener('dragover', e => e.preventDefault());
+        mapContainer.addEventListener('drop', e => {
+            e.preventDefault();
+            const typeId = e.dataTransfer.getData('text/plain');
+            const type = hazardTypes.find(t => t.id === typeId);
+            if (!type) return;
+            const rect = mapWrapper.getBoundingClientRect();
+            const logicalX = (e.clientX - rect.left) / zoomLevel;
+            const logicalY = (e.clientY - rect.top) / zoomLevel;
+            addHazardToMap(type, logicalX, logicalY);
+        });
 
         supabase.channel('hazards').on('postgres_changes', { event: '*', schema: 'public', table: 'hazards' }, loadHazards).subscribe();
     </script>
