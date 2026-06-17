@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hazard Mapping Tool - PMC Building 1</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
+        body { font-family: 'Inter', sans-serif; }
+        #map-container {
+            position: relative;
+            overflow: hidden;
+            background-color: #f3f4f6;
+            cursor: grab;
+        }
+        #map-wrapper {
+            position: relative;
+            display: inline-block;
+            transform-origin: top left;
+        }
+        .hazard-icon {
+            position: absolute;
+            width: 20px;
+            height: 20px;
+            cursor: pointer;
+            user-select: none;
+            z-index: 10;
+            transition: transform 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+            border-radius: 9999px;
+            box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.3);
+            border: 2px solid #ef4444 !important;
+        }
+        .hazard-icon:hover {
+            transform: scale(1.2);
+            box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.4);
+        }
+        .legend-item { cursor: grab; }
+    </style>
+</head>
+<body class="bg-gray-950 text-white">
+    <div class="min-h-screen flex">
+        <!-- Sidebar -->
+        <div class="w-80 bg-gray-900 border-r border-gray-700 flex flex-col">
+            <div class="p-6 border-b border-gray-700">
+                <h1 class="text-2xl font-bold flex items-center gap-3">
+                    <span class="text-orange-500">⚠️</span>
+                    Hazard Map
+                </h1>
+                <p class="text-gray-400 text-sm mt-1">PMC Building 1 • Live Shared</p>
+            </div>
+
+            <!-- Password -->
+            <div id="login-screen" class="flex-1 flex items-center justify-center p-6">
+                <div class="w-full max-w-xs space-y-6">
+                    <div class="text-center">
+                        <div class="mx-auto w-16 h-16 bg-orange-500/10 rounded-2xl flex items-center justify-center text-4xl mb-4">🔒</div>
+                        <h2 class="text-xl font-semibold">Secure Access</h2>
+                        <p class="text-gray-400 text-sm mt-1">Enter password to continue</p>
+                    </div>
+                    <input id="password-input" type="password" class="w-full bg-gray-800 border border-gray-600 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-orange-500" placeholder="Password">
+                    <button onclick="checkPassword()" class="w-full bg-orange-500 hover:bg-orange-600 py-3 rounded-xl font-medium transition-colors">Unlock Map</button>
+                </div>
+            </div>
+
+            <!-- Main App -->
+            <div id="main-app" class="hidden flex-1 flex flex-col">
+                <div class="p-6 border-b border-gray-700 overflow-auto flex-1">
+                    <div class="flex justify-between items-center mb-4">
+                        <h2 class="font-semibold text-lg">Hazard Legend</h2>
+                        <div class="flex gap-2">
+                            <button onclick="toggleAllLayers(true)" class="px-3 py-1 text-xs bg-gray-700 hover:bg-gray-600 rounded-lg">All On</button>
+                            <button onclick="toggleAllLayers(false)" class="px-3 py-1 text-xs bg-gray-700 hover:bg-gray-600 rounded-lg">All Off</button>
+                        </div>
+                    </div>
+                    <div id="life-critical-legend" class="mb-6"></div>
+                    <div id="general-legend"></div>
+                </div>
+
+                <div class="p-4 border-t border-gray-700 space-y-3">
+                    <div class="flex gap-2">
+                        <button onclick="clearMap()" class="flex-1 bg-red-500/10 hover:bg-red-500/20 text-red-400 py-2 rounded-xl text-sm font-medium">🗑️ Clear Map</button>
+                        <button onclick="exportMap()" class="flex-1 bg-green-500/10 hover:bg-green-500/20 text-green-400 py-2 rounded-xl text-sm font-medium">📸 Export PNG</button>
+                    </div>
+                    <button onclick="saveToServer()" class="w-full bg-blue-600 hover:bg-blue-700 py-2 rounded-xl font-medium">💾 Refresh Map</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Map Area -->
+        <div class="flex-1 flex flex-col">
+            <div class="bg-gray-900 border-b border-gray-700 p-4 flex items-center justify-between">
+                <div class="flex items-center gap-4">
+                    <div class="text-sm text-gray-400">Building: PMC 1</div>
+                    <div id="status" class="text-xs px-3 py-1 bg-emerald-900 rounded-full text-emerald-400">● Live Sync</div>
+                </div>
+                <button onclick="logout()" class="text-gray-400 hover:text-white">Logout</button>
+            </div>
+            
+            <div id="map-container" class="flex-1 p-8 flex items-center justify-center overflow-auto relative">
+                <div id="map-wrapper">
+                    <img id="floor-map" src="pmc-building-1.png.png" alt="Floor Plan" draggable="false" class="shadow-2xl border border-gray-700 rounded-xl max-h-[90vh]">
+                </div>
+            </div>
+
+            <div class="bg-gray-900 p-4 text-xs text-gray-500 border-t border-gray-700">
+                Drag from legend • Wheel to zoom • Double-click pin to edit • Changes sync live to everyone
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal -->
+    <div id="hazard-modal" class="hidden fixed inset-0 bg-black/80 flex items-center justify-center z-50">
+        <div class="bg-gray-900 rounded-3xl p-6 w-full max-w-md">
+            <h3 class="text-lg font-semibold mb-1" id="modal-title">Hazard Details</h3>
+            <p id="modal-hazard-name" class="text-orange-400 text-sm mb-4"></p>
+            <textarea id="hazard-notes" rows="6" class="w-full bg-gray-800 border border-gray-600 rounded-2xl p-4 text-white resize-y" placeholder="Notes, responsible person, status, actions..."></textarea>
+            <div class="flex gap-3 mt-6">
+                <button onclick="deleteCurrentHazard()" class="flex-1 py-3 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-2xl font-medium">Delete Pin</button>
+                <button onclick="closeModal()" class="flex-1 py-3 bg-gray-700 hover:bg-gray-600 rounded-2xl font-medium">Cancel</button>
+                <button onclick="saveHazardDetails()" class="flex-1 py-3 bg-orange-500 hover:bg-orange-600 rounded-2xl font-medium">Save Notes</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const PASSWORD = "safety2026";
+
+        // ==================== SUPABASE SETUP ====================
+        const SUPABASE_URL = 'https://kiatbiizngtuooheicxs.supabase.co';     // ← CHANGE THIS
+        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtpYXRiaWl6bmd0dW9vaGVpY3hzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE2Nzk5MTEsImV4cCI6MjA5NzI1NTkxMX0.UQBpBAXHxtZXnvjKhF6QhTgN3IaTKIb-2SFnLZPGBWE';               // ← CHANGE THIS
+        
+        const supabase = Supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+        let hazards = [];
+        let nextId = 1;
+        let currentEditingId = null;
+
+        const hazardTypes = [
+            {id: 'lc1', name: 'Electrical Energy', category: 'life', icon: '⚡', color: '#ef4444'},
+            {id: 'lc2', name: 'Confined Space Entry', category: 'life', icon: '🕳️', color: '#f59e0b'},
+            {id: 'lc3', name: 'Work at Heights', category: 'life', icon: '🪜', color: '#eab308'},
+            {id: 'lc4', name: 'Hot Work', category: 'life', icon: '🔥', color: '#dc2626'},
+            {id: 'lc5', name: 'Mobile eqp / Forklift', category: 'life', icon: '🚜', color: '#ea580c'},
+            {id: 'lc6', name: 'Machine Guarding', category: 'life', icon: '⚙️', color: '#b91c1c'},
+            {id: 'lc7', name: 'Hazardous Chemicals', category: 'life', icon: '☣️', color: '#7c3aed'},
+            {id: 'lc8', name: 'Suspended Loads', category: 'life', icon: '🏗️', color: '#c2410c'},
+            {id: 'lc9', name: 'Process Safety', category: 'life', icon: '👷', color: '#14b8a6'},
+            {id: 'lc10', name: 'Excavation Trenching', category: 'life', icon: '🪏', color: '#f97316'},
+            {id: 'lc11', name: 'Radiation / Laser Exposure', category: 'life', icon: '💡', color: '#8b5cf6'},
+            {id: 'lc12', name: 'Work over Water', category: 'life', icon: '🚰', color: '#0ea5e9'},
+            {id: 'lc13', name: 'Structural Integrity', category: 'life', icon: '🏛️', color: '#ef4444'},
+            {id: 'g1', name: 'Noise Area', category: 'general', icon: '🔊', color: '#3b82f6'},
+            {id: 'g2', name: 'Slip/Trip Hazard', category: 'general', icon: '🚧', color: '#64748b'},
+            {id: 'g3', name: 'Ergonomic Risk', category: 'general', icon: '🦴', color: '#14b8a6'},
+            {id: 'g4', name: 'Dust/Fume', category: 'general', icon: '🌫️', color: '#78716c'},
+            {id: 'g5', name: 'Sharp Edges', category: 'general', icon: '🗡️', color: '#78716c'},
+        ];
+
+        async function checkPassword() {
+            if (document.getElementById('password-input').value === PASSWORD) {
+                document.getElementById('login-screen').classList.add('hidden');
+                document.getElementById('main-app').classList.remove('hidden');
+                initLegend();
+                await loadHazards();
+            } else {
+                alert("Incorrect password. Try again.");
+            }
+        }
+
+        function initLegend() {
+            const lifeDiv = document.getElementById('life-critical-legend');
+            const genDiv = document.getElementById('general-legend');
+            lifeDiv.innerHTML = ''; genDiv.innerHTML = '';
+
+            hazardTypes.forEach(type => {
+                const div = document.createElement('div');
+                div.className = `legend-item flex items-center gap-3 p-3 bg-gray-800 hover:bg-gray-700 rounded-2xl text-sm`;
+                div.draggable = true;
+                div.dataset.typeId = type.id;
+                div.innerHTML = `
+                    <div style="background-color: ${type.color}" class="w-8 h-8 rounded-xl flex items-center justify-center text-xl shadow-inner">
+                        ${type.icon}
+                    </div>
+                    <div>
+                        <div class="font-medium">${type.name}</div>
+                        <div class="text-xs text-gray-400">${type.category === 'life' ? 'Life Critical' : 'General'}</div>
+                    </div>
+                `;
+                div.addEventListener('dragstart', e => e.dataTransfer.setData('text/plain', type.id));
+                (type.category === 'life' ? lifeDiv : genDiv).appendChild(div);
+            });
+        }
+
+        // Zoom & Pan (kept from your version)
+        let zoomLevel = 1, panX = 0, panY = 0;
+        const mapContainer = document.getElementById('map-container');
+        const mapWrapper = document.getElementById('map-wrapper');
+
+        function updateTransform() {
+            mapWrapper.style.transform = `translate(${panX}px, ${panY}px) scale(${zoomLevel})`;
+        }
+
+        // ... (wheel, pan, drop handlers same as your file - included below)
+
+        mapContainer.addEventListener('wheel', e => { /* same as your code */ 
+            e.preventDefault();
+            const delta = e.deltaY < 0 ? 1.1 : 0.9;
+            const old = zoomLevel;
+            zoomLevel = Math.max(0.5, Math.min(5, zoomLevel * delta));
+            const rect = mapContainer.getBoundingClientRect();
+            const mx = e.clientX - rect.left;
+            const my = e.clientY - rect.top;
+            panX = mx - (mx - panX) * (zoomLevel / old);
+            panY = my - (my - panY) * (zoomLevel / old);
+            updateTransform();
+        });
+
+        let isDragging = false, lastX, lastY;
+        mapContainer.addEventListener('mousedown', e => {
+            if (e.target.closest('.hazard-icon')) return;
+            isDragging = true;
+            lastX = e.clientX;
+            lastY = e.clientY;
+        });
+        document.addEventListener('mousemove', e => {
+            if (!isDragging) return;
+            panX += e.clientX - lastX;
+            panY += e.clientY - lastY;
+            lastX = e.clientX;
+            lastY = e.clientY;
+            updateTransform();
+        });
+        document.addEventListener('mouseup', () => isDragging = false);
+
+        // === CORE SUPABASE FUNCTIONS ===
+        async function loadHazards() {
+            const { data, error } = await supabase.from('hazards').select('*').order('created_at');
+            if (error) { console.error(error); return; }
+
+            hazards = data || [];
+            nextId = hazards.length ? Math.max(...hazards.map(h => parseInt(h.id))) + 1 : 1;
+
+            // Clear old icons
+            document.querySelectorAll('.hazard-icon').forEach(i => i.remove());
+
+            hazards.forEach(h => {
+                const type = hazardTypes.find(t => t.id === h.type_id);
+                if (!type) return;
+                createIcon(h, type);
+            });
+        }
+
+        function createIcon(hazard, type) {
+            const icon = document.createElement('div');
+            icon.className = 'hazard-icon';
+            icon.style.left = `${hazard.x - 10}px`;
+            icon.style.top = `${hazard.y - 10}px`;
+            icon.style.backgroundColor = type.color + '33';
+            icon.style.color = type.color;
+            icon.innerHTML = type.icon;
+            icon.dataset.id = hazard.id;
+            icon.dataset.typeId = hazard.type_id;
+
+            const short = hazard.notes ? ': ' + hazard.notes.substring(0, 80) + (hazard.notes.length > 80 ? '...' : '') : '';
+            icon.title = type.name + short;
+            icon.addEventListener('dblclick', () => editHazard(hazard.id));
+            mapWrapper.appendChild(icon);
+        }
+
+        async function addHazardToMap(type, logicalX, logicalY) {
+            const newId = String(Date.now());
+            const newHazard = { id: newId, type_id: type.id, x: logicalX, y: logicalY, notes: '' };
+
+            const { error } = await supabase.from('hazards').insert(newHazard);
+            if (error) alert("Failed to add pin");
+            else await loadHazards();
+        }
+
+        function editHazard(id) {
+            currentEditingId = id;
+            const hazard = hazards.find(h => h.id === id);
+            if (!hazard) return;
+
+            const type = hazardTypes.find(t => t.id === hazard.type_id);
+            document.getElementById('modal-title').textContent = 'Edit Hazard';
+            document.getElementById('modal-hazard-name').innerHTML = type ? `${type.icon} ${type.name}` : 'Hazard';
+            document.getElementById('hazard-notes').value = hazard.notes || '';
+            document.getElementById('hazard-modal').classList.remove('hidden');
+        }
+
+        async function saveHazardDetails() {
+            if (!currentEditingId) return;
+            const notes = document.getElementById('hazard-notes').value.trim();
+
+            const { error } = await supabase.from('hazards').update({ notes }).eq('id', currentEditingId);
+            if (error) alert("Save failed");
+            else {
+                closeModal();
+                await loadHazards();
+            }
+        }
+
+        async function deleteCurrentHazard() {
+            if (!currentEditingId || !confirm('Delete this hazard pin?')) return;
+            await supabase.from('hazards').delete().eq('id', currentEditingId);
+            closeModal();
+            await loadHazards();
+        }
+
+        async function clearMap() {
+            if (confirm('Clear ALL hazard pins for everyone?')) {
+                await supabase.from('hazards').delete().neq('id', '0');
+                await loadHazards();
+            }
+        }
+
+        function closeModal() {
+            document.getElementById('hazard-modal').classList.add('hidden');
+            currentEditingId = null;
+        }
+
+        // Real-time sync
+        supabase.channel('hazards-channel')
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'hazards' }, () => loadHazards())
+            .subscribe();
+
+        // Drop handler
+        mapContainer.addEventListener('dragover', e => e.preventDefault());
+        mapContainer.addEventListener('drop', e => {
+            e.preventDefault();
+            const typeId = e.dataTransfer.getData('text/plain');
+            const type = hazardTypes.find(t => t.id === typeId);
+            if (!type) return;
+
+            const rect = mapWrapper.getBoundingClientRect();
+            const logicalX = (e.clientX - rect.left) / zoomLevel;
+            const logicalY = (e.clientY - rect.top) / zoomLevel;
+            addHazardToMap(type, logicalX, logicalY);
+        });
+
+        function exportMap() { alert("Use screenshot for best quality (PrtSc)"); }
+        function toggleAllLayers(show) {
+            document.querySelectorAll('.hazard-icon').forEach(icon => icon.style.display = show ? 'flex' : 'none');
+        }
+        function saveToServer() { loadHazards(); alert("Map refreshed from cloud"); }
+        function logout() { if(confirm('Logout?')) location.reload(); }
+
+        document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+    </script>
+</body>
+</html>
