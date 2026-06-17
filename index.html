@@ -87,7 +87,7 @@
                         <button onclick="clearMap()" class="flex-1 bg-red-500/10 hover:bg-red-500/20 text-red-400 py-2 rounded-xl text-sm font-medium">🗑️ Clear Map</button>
                         <button onclick="exportMap()" class="flex-1 bg-green-500/10 hover:bg-green-500/20 text-green-400 py-2 rounded-xl text-sm font-medium">📸 Export PNG</button>
                     </div>
-                    <button onclick="saveToServer()" class="w-full bg-blue-600 hover:bg-blue-700 py-2 rounded-xl font-medium">💾 Refresh Map</button>
+                    <button onclick="refreshMap()" class="w-full bg-blue-600 hover:bg-blue-700 py-2 rounded-xl font-medium">🔄 Refresh Map</button>
                 </div>
             </div>
         </div>
@@ -109,7 +109,7 @@
             </div>
 
             <div class="bg-gray-900 p-4 text-xs text-gray-500 border-t border-gray-700">
-                Drag from legend • Wheel to zoom • Double-click pin to edit • Changes sync live to everyone
+                Drag from legend • Wheel to zoom • Double-click pin to edit • Changes sync live
             </div>
         </div>
     </div>
@@ -132,16 +132,15 @@
         const PASSWORD = "safety2026";
 
         // ==================== SUPABASE SETUP ====================
-        const SUPABASE_URL = 'https://kiatbiizngtuooheicxs.supabase.co';     // ← CHANGE THIS
-        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtpYXRiaWl6bmd0dW9vaGVpY3hzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE2Nzk5MTEsImV4cCI6MjA5NzI1NTkxMX0.UQBpBAXHxtZXnvjKhF6QhTgN3IaTKIb-2SFnLZPGBWE';               // ← CHANGE THIS
+        const SUPABASE_URL = 'https://kiatbiizngtuooheicxs.supabase.co';
+        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtpYXRiaWl6bmd0dW9vaGVpY3hzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE2Nzk5MTEsImV4cCI6MjA5NzI1NTkxMX0.UQBpBAXHxtZXnvjKhF6QhTgN3IaTKIb-2SFnLZPGBWE';
         
         const supabase = Supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
         let hazards = [];
-        let nextId = 1;
         let currentEditingId = null;
 
-        const hazardTypes = [
+        const hazardTypes = [ /* your list - unchanged */ 
             {id: 'lc1', name: 'Electrical Energy', category: 'life', icon: '⚡', color: '#ef4444'},
             {id: 'lc2', name: 'Confined Space Entry', category: 'life', icon: '🕳️', color: '#f59e0b'},
             {id: 'lc3', name: 'Work at Heights', category: 'life', icon: '🪜', color: '#eab308'},
@@ -197,7 +196,7 @@
             });
         }
 
-        // Zoom & Pan (kept from your version)
+        // Zoom & Pan
         let zoomLevel = 1, panX = 0, panY = 0;
         const mapContainer = document.getElementById('map-container');
         const mapWrapper = document.getElementById('map-wrapper');
@@ -206,9 +205,7 @@
             mapWrapper.style.transform = `translate(${panX}px, ${panY}px) scale(${zoomLevel})`;
         }
 
-        // ... (wheel, pan, drop handlers same as your file - included below)
-
-        mapContainer.addEventListener('wheel', e => { /* same as your code */ 
+        mapContainer.addEventListener('wheel', e => {
             e.preventDefault();
             const delta = e.deltaY < 0 ? 1.1 : 0.9;
             const old = zoomLevel;
@@ -238,22 +235,24 @@
         });
         document.addEventListener('mouseup', () => isDragging = false);
 
-        // === CORE SUPABASE FUNCTIONS ===
+        // Supabase Core
         async function loadHazards() {
-            const { data, error } = await supabase.from('hazards').select('*').order('created_at');
-            if (error) { console.error(error); return; }
+            try {
+                const { data, error } = await supabase.from('hazards').select('*').order('created_at');
+                if (error) throw error;
 
-            hazards = data || [];
-            nextId = hazards.length ? Math.max(...hazards.map(h => parseInt(h.id))) + 1 : 1;
+                hazards = data || [];
+                document.querySelectorAll('.hazard-icon').forEach(i => i.remove());
 
-            // Clear old icons
-            document.querySelectorAll('.hazard-icon').forEach(i => i.remove());
-
-            hazards.forEach(h => {
-                const type = hazardTypes.find(t => t.id === h.type_id);
-                if (!type) return;
-                createIcon(h, type);
-            });
+                hazards.forEach(h => {
+                    const type = hazardTypes.find(t => t.id === h.type_id);
+                    if (!type) return;
+                    createIcon(h, type);
+                });
+            } catch (err) {
+                console.error(err);
+                alert("Failed to load map. Check console (F12).");
+            }
         }
 
         function createIcon(hazard, type) {
@@ -275,9 +274,9 @@
 
         async function addHazardToMap(type, logicalX, logicalY) {
             const newId = String(Date.now());
-            const newHazard = { id: newId, type_id: type.id, x: logicalX, y: logicalY, notes: '' };
-
-            const { error } = await supabase.from('hazards').insert(newHazard);
+            const { error } = await supabase.from('hazards').insert({
+                id: newId, type_id: type.id, x: logicalX, y: logicalY, notes: ''
+            });
             if (error) alert("Failed to add pin");
             else await loadHazards();
         }
@@ -297,7 +296,6 @@
         async function saveHazardDetails() {
             if (!currentEditingId) return;
             const notes = document.getElementById('hazard-notes').value.trim();
-
             const { error } = await supabase.from('hazards').update({ notes }).eq('id', currentEditingId);
             if (error) alert("Save failed");
             else {
@@ -313,6 +311,11 @@
             await loadHazards();
         }
 
+        function closeModal() {
+            document.getElementById('hazard-modal').classList.add('hidden');
+            currentEditingId = null;
+        }
+
         async function clearMap() {
             if (confirm('Clear ALL hazard pins for everyone?')) {
                 await supabase.from('hazards').delete().neq('id', '0');
@@ -320,12 +323,9 @@
             }
         }
 
-        function closeModal() {
-            document.getElementById('hazard-modal').classList.add('hidden');
-            currentEditingId = null;
-        }
+        function refreshMap() { loadHazards(); }
 
-        // Real-time sync
+        // Real-time updates
         supabase.channel('hazards-channel')
             .on('postgres_changes', { event: '*', schema: 'public', table: 'hazards' }, () => loadHazards())
             .subscribe();
@@ -344,11 +344,10 @@
             addHazardToMap(type, logicalX, logicalY);
         });
 
-        function exportMap() { alert("Use screenshot for best quality (PrtSc)"); }
+        function exportMap() { alert("Use screenshot (PrtSc) for best quality"); }
         function toggleAllLayers(show) {
             document.querySelectorAll('.hazard-icon').forEach(icon => icon.style.display = show ? 'flex' : 'none');
         }
-        function saveToServer() { loadHazards(); alert("Map refreshed from cloud"); }
         function logout() { if(confirm('Logout?')) location.reload(); }
 
         document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
